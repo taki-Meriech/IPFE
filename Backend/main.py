@@ -1,10 +1,9 @@
-from planner_executor import generate_plan_only, load_k8s_config, execute_plan, save_history
+from planner_executor import CACHE_FILE, HISTORY_FILE, generate_plan_only, execute_plan, save_history
 from k8s_module import load_k8s_config, is_cluster_available
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import redirect_stdout
 from pydantic import BaseModel
 from kubernetes import client
-from kubernetes import config
 from fastapi import FastAPI
 import json
 import yaml
@@ -69,8 +68,8 @@ def scale_deployment_api(data: dict):
 @app.post("/cache/clear")
 def clear_cache():
     try:
-        if os.path.exists("prompt_cache.json"):
-            os.remove("prompt_cache.json")
+        if os.path.exists(CACHE_FILE):
+            os.remove(CACHE_FILE)
 
         return {
             "success": True,
@@ -167,7 +166,7 @@ def execute_command(req: ExecuteRequest):
 @app.get("/history")
 def get_history():
     try:
-        with open("history.json", "r", encoding="utf-8") as f:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             history = json.load(f)
 
         return {

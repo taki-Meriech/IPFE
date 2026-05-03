@@ -1,5 +1,6 @@
 import json
 import ollama
+from pathlib import Path
 from k8s_module import (
     load_k8s_config,
     create_deployment,
@@ -14,7 +15,9 @@ from k8s_module import (
 )
 import re 
 
-CACHE_FILE = "prompt_cache.json"
+BASE_DIR = Path(__file__).resolve().parent
+CACHE_FILE = BASE_DIR / "prompt_cache.json"
+HISTORY_FILE = BASE_DIR / "history.json"
 
 
 def load_cache():
@@ -33,7 +36,7 @@ def save_cache(cache):
 
 def save_history(command, plan):
     try:
-        with open("history.json", "r", encoding="utf-8") as f:
+        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
             history = json.load(f)
     except FileNotFoundError:
         history = []
@@ -45,7 +48,7 @@ def save_history(command, plan):
         "plan": plan
     })
 
-    with open("history.json", "w", encoding="utf-8") as f:
+    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
         json.dump(history, f, indent=2, ensure_ascii=False)
 
 PROMPT_TEMPLATE = """
@@ -147,32 +150,6 @@ JSON:
 
 def build_prompt(text):
     return PROMPT_TEMPLATE.replace("{TEXT}", text)
-
-
-def normalize_plan(plan):
-    if not isinstance(plan, list):
-        return plan
-
-    for step in plan:
-        if not isinstance(step, dict):
-            continue
-
-        action = step.get("action")
-
-        if action == "deploy":
-            if "replicas" not in step:
-                step["replicas"] = 1
-
-            if "name" not in step and "image" in step:
-                step["name"] = step["image"]
-
-        elif action == "delete":
-            name = step.get("name")
-
-            if name in ["", None]:
-                step["name"] = "all"
-
-    return plan
 
 
 def extract_json_array(raw_text):
@@ -307,7 +284,6 @@ def check_plan_consistency(plan):
     if not isinstance(plan, list) or len(plan) == 0:
         return False, "Plan vide ou invalide."
 
-    deployed_names = set()
     seen_deploys = set()
 
     for i, step in enumerate(plan, start=1):
@@ -318,7 +294,6 @@ def check_plan_consistency(plan):
             if name in seen_deploys:
                 return False, f"Le deployment '{name}' apparaît plusieurs fois en deploy."
             seen_deploys.add(name)
-            deployed_names.add(name)
 
         elif action == "scale":
             if not name:
@@ -333,42 +308,12 @@ def check_plan_consistency(plan):
                     f"mais le plan a déployé auparavant {previous_deploys}."
                 )
 
-    return True, "Plan cohérent."
-
-
-def check_plan_consistency(plan):
-    """
-    Vérifie la cohérence logique d'un plan multi-étapes.
-    """
-    if not isinstance(plan, list) or len(plan) == 0:
-        return False, "Plan vide ou invalide."
-
-    seen_deploys = set()
-
-    for i, step in enumerate(plan, start=1):
-        action = step.get("action")
-        name = step.get("name")
-
-        if action == "deploy":
-            if name in seen_deploys:
-                return False, f"Le deployment '{name}' apparaît plusieurs fois en deploy."
-            seen_deploys.add(name)
-
-        elif action == "scale":
-            if not name:
-                return False, f"L'étape {i} scale n'a pas de nom."
-            previous_deploys = [s.get("name") for s in plan[:i-1] if s.get("action") == "deploy"]
-            if previous_deploys and name not in previous_deploys:
-                return False, (
-                    f"L'étape {i} scale cible '{name}', "
-                    f"mais le plan a déployé auparavant {previous_deploys}."
-                )
 
         elif action == "delete":
             if not name:
                 return False, f"L'étape {i} delete n'a pas de nom."
-
     return True, "Plan cohérent."
+
 
 def validate_business_rules(plan):
     """
