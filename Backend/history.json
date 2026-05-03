@@ -1,0 +1,449 @@
+[
+  {
+    "command": "deploy nginx with 2 replicas",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx",
+        "replicas": 2
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx with 2 replicas",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx",
+        "replicas": 2
+      }
+    ]
+  },
+  {
+    "command": "status nginx",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "scale nginx to 3",
+    "plan": [
+      {
+        "action": "scale",
+        "name": "nginx",
+        "replicas": 3
+      }
+    ]
+  },
+  {
+    "command": "delete nginx",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "status nginx",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "scale nginx to 3",
+    "plan": [
+      {
+        "action": "scale",
+        "name": "nginx",
+        "replicas": 3
+      }
+    ]
+  },
+  {
+    "command": "status nginx",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "status nginx",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx with 2 replicas ",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx",
+        "replicas": 2
+      }
+    ]
+  },
+  {
+    "command": "status nginx",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "delete nginx",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "statua nginx ",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "scale nginx to 2 replicas",
+    "plan": [
+      {
+        "action": "scale",
+        "name": "nginx",
+        "replicas": 2
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "delete nginx",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "delete nginx",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx ",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "scale nginx to 3 replicas",
+    "plan": [
+      {
+        "action": "scale",
+        "name": "nginx",
+        "replicas": 3
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "delete nginx",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "delete nginx",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "delete nginx",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "delete nginx",
+    "plan": [
+      {
+        "action": "delete",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "deploy nginx",
+    "plan": [
+      {
+        "action": "deploy",
+        "name": "nginx",
+        "image": "nginx:latest",
+        "replicas": 1
+      }
+    ]
+  },
+  {
+    "command": "nginx status",
+    "plan": [
+      {
+        "action": "status",
+        "name": "nginx"
+      }
+    ]
+  },
+  {
+    "command": "afficher les deployments",
+    "plan": [
+      {
+        "action": "list_deployments"
+      }
+    ]
+  }
+]

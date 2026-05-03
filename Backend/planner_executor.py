@@ -1,0 +1,719 @@
+import json
+import ollama
+from k8s_module import (
+    load_k8s_config,
+    create_deployment,
+    scale_deployment,
+    delete_deployment,
+    list_pods,
+    list_deployments,
+    list_services,
+    is_cluster_available,
+    get_deployment_status,
+    deployment_exists
+)
+import re 
+
+CACHE_FILE = "prompt_cache.json"
+
+
+def load_cache():
+    try:
+        with open(CACHE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def save_cache(cache):
+    with open(CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(cache, f, indent=2, ensure_ascii=False)
+
+def save_history(command, plan):
+    try:
+        with open("history.json", "r", encoding="utf-8") as f:
+            history = json.load(f)
+    except FileNotFoundError:
+        history = []
+    except json.JSONDecodeError:
+        history = []
+
+    history.append({
+        "command": command,
+        "plan": plan
+    })
+
+    with open("history.json", "w", encoding="utf-8") as f:
+        json.dump(history, f, indent=2, ensure_ascii=False)
+
+PROMPT_TEMPLATE = """
+You are a Kubernetes planner AI.
+
+Your job is to convert a user command into a LIST of JSON actions.
+
+IMPORTANT RULES:
+- Return ONLY valid JSON
+- Return a JSON array []
+- No markdown
+- No explanations
+- No comments
+- No text outside JSON
+
+Allowed actions:
+- deploy
+- scale
+- delete
+- list_pods
+- list_deployments
+- list_services
+- status
+
+Each object MUST contain an "action" field.
+
+Formats:
+
+[
+  {
+    "action": "deploy",
+    "name": "...",
+    "image": "...",
+    "replicas": ...
+  }
+]
+
+[
+  {
+    "action": "scale",
+    "name": "...",
+    "replicas": ...
+  }
+]
+
+[
+  {
+    "action": "delete",
+    "name": "..."
+  }
+]
+
+[
+  {
+    "action": "list_pods"
+  }
+]
+
+[
+  {
+    "action": "list_deployments"
+  }
+]
+
+[
+  {
+    "action": "list_services"
+  }
+]
+
+[
+  {
+    "action": "status",
+    "name": "..."
+  }
+]
+
+Rules:
+- If multiple steps, return multiple objects in a list
+- If only one step, still return a list with one object
+- For deploy, if replicas is missing, use 1
+- For deploy, if name is missing, use image as name
+- For scale, action must always be "scale"
+- For delete, include the deployment name
+- If the user asks for the status of a deployment, use "status".
+- If the user asks to show pods, use "list_pods"
+- If the user asks to show deployments, use "list_deployments"
+- If the user asks to show services, use "list_services"
+- If the user asks to change load, workload, charge, number of instances, or replicas, use "scale".
+- If unclear, return []
+- Never use "..." as a name. If the deployment name is missing or unclear, return [].
+- If the user says delete all, delete everything, or delete *, return [].
+
+Command: "{TEXT}"
+
+JSON:
+"""
+
+
+def build_prompt(text):
+    return PROMPT_TEMPLATE.replace("{TEXT}", text)
+
+
+def normalize_plan(plan):
+    if not isinstance(plan, list):
+        return plan
+
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+
+        action = step.get("action")
+
+        if action == "deploy":
+            if "replicas" not in step:
+                step["replicas"] = 1
+
+            if "name" not in step and "image" in step:
+                step["name"] = step["image"]
+
+        elif action == "delete":
+            name = step.get("name")
+
+            if name in ["", None]:
+                step["name"] = "all"
+
+    return plan
+
+
+def extract_json_array(raw_text):
+    raw_text = raw_text.strip()
+    raw_text = raw_text.replace("```json", "").replace("```", "").strip()
+
+    # essai direct
+    try:
+        return json.loads(raw_text)
+    except json.JSONDecodeError:
+        pass
+
+    # extraire le premier tableau [...]
+    start = raw_text.find("[")
+    if start == -1:
+        return None
+
+    depth = 0
+    candidate = None
+
+    for i in range(start, len(raw_text)):
+        ch = raw_text[i]
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                candidate = raw_text[start:i + 1]
+                break
+
+    if candidate is None:
+        return None
+
+    # essai 2 : parser tel quel
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+
+    # essai 3 : petites réparations fréquentes
+    repaired = candidate
+
+    # ajoute une virgule manquante entre deux champs JSON sur lignes séparées
+    repaired = re.sub(r'("\s*)\n(\s*")', r'\1,\n\2', repaired)
+
+    # corrige virgule manquante après une valeur string avant un nouveau champ
+    repaired = re.sub(r'(":\s*"[^"]+")\s*\n(\s*")', r'\1,\n\2', repaired)
+
+    # corrige virgule manquante après une valeur numérique avant un nouveau champ
+    repaired = re.sub(r'(":\s*\d+)\s*\n(\s*")', r'\1,\n\2', repaired)
+
+    try:
+        return json.loads(repaired)
+    except json.JSONDecodeError:
+        return None
+
+
+def normalize_plan(plan):
+    """
+    Complète les champs manquants selon les règles métier.
+    """
+    if not isinstance(plan, list):
+        return plan
+
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+
+        action = step.get("action")
+
+        if action == "deploy":
+            if "replicas" not in step:
+                step["replicas"] = 1
+
+            if "name" not in step and "image" in step:
+                step["name"] = step["image"]
+
+    return plan
+
+
+def validate_plan(plan):
+    if not isinstance(plan, list):
+        return False, "La sortie n'est pas une liste JSON."
+
+    for i, step in enumerate(plan, start=1):
+        if not isinstance(step, dict):
+            return False, f"L'étape {i} n'est pas un objet JSON."
+
+        if "action" not in step:
+            return False, f"L'étape {i} ne contient pas le champ 'action'."
+
+        action = step["action"]
+
+        if action == "deploy":
+            if "name" not in step:
+                return False, f"L'étape {i} deploy n'a pas de 'name'."
+            if "image" not in step:
+                return False, f"L'étape {i} deploy n'a pas de 'image'."
+            if "replicas" not in step:
+                return False, f"L'étape {i} deploy n'a pas de 'replicas'."
+
+        elif action == "scale":
+            if "name" not in step:
+                return False, f"L'étape {i} scale n'a pas de 'name'."
+            if "replicas" not in step:
+                return False, f"L'étape {i} scale n'a pas de 'replicas'."
+
+        elif action == "delete":
+            if "name" not in step:
+                return False, f"L'étape {i} delete n'a pas de 'name'."
+
+            if str(step["name"]).lower() in ["", "none", "...", "all", "*", "everything"]:
+                return False, "Commande delete dangereuse ou invalide."
+
+        elif action in ["list_pods", "list_deployments", "list_services"]:
+            pass
+
+        elif action == "status":
+            if "name" not in step:
+                return False, f"L'étape {i} status n'a pas de 'name'."
+
+        else:
+            return False, f"L'étape {i} a une action inconnue : {action}"
+
+    return True, "Plan valide."
+
+
+def check_plan_consistency(plan):
+    """
+    Vérifie la cohérence logique d'un plan multi-étapes.
+    """
+    if not isinstance(plan, list) or len(plan) == 0:
+        return False, "Plan vide ou invalide."
+
+    deployed_names = set()
+    seen_deploys = set()
+
+    for i, step in enumerate(plan, start=1):
+        action = step.get("action")
+        name = step.get("name")
+
+        if action == "deploy":
+            if name in seen_deploys:
+                return False, f"Le deployment '{name}' apparaît plusieurs fois en deploy."
+            seen_deploys.add(name)
+            deployed_names.add(name)
+
+        elif action == "scale":
+            if not name:
+                return False, f"L'étape {i} scale n'a pas de nom."
+            # autorisé si le même plan a déjà fait un deploy de ce nom
+            # sinon on laisse passer aussi, car la ressource peut exister déjà dans le cluster
+            # mais si le plan contient un deploy différent juste avant, on peut détecter une incohérence simple
+            previous_deploys = [s.get('name') for s in plan[:i-1] if s.get('action') == 'deploy']
+            if previous_deploys and name not in previous_deploys:
+                return False, (
+                    f"L'étape {i} scale cible '{name}', "
+                    f"mais le plan a déployé auparavant {previous_deploys}."
+                )
+
+    return True, "Plan cohérent."
+
+
+def check_plan_consistency(plan):
+    """
+    Vérifie la cohérence logique d'un plan multi-étapes.
+    """
+    if not isinstance(plan, list) or len(plan) == 0:
+        return False, "Plan vide ou invalide."
+
+    seen_deploys = set()
+
+    for i, step in enumerate(plan, start=1):
+        action = step.get("action")
+        name = step.get("name")
+
+        if action == "deploy":
+            if name in seen_deploys:
+                return False, f"Le deployment '{name}' apparaît plusieurs fois en deploy."
+            seen_deploys.add(name)
+
+        elif action == "scale":
+            if not name:
+                return False, f"L'étape {i} scale n'a pas de nom."
+            previous_deploys = [s.get("name") for s in plan[:i-1] if s.get("action") == "deploy"]
+            if previous_deploys and name not in previous_deploys:
+                return False, (
+                    f"L'étape {i} scale cible '{name}', "
+                    f"mais le plan a déployé auparavant {previous_deploys}."
+                )
+
+        elif action == "delete":
+            if not name:
+                return False, f"L'étape {i} delete n'a pas de nom."
+
+    return True, "Plan cohérent."
+
+def validate_business_rules(plan):
+    """
+    Vérifie des règles métier simples avant exécution.
+    """
+    forbidden_names = {"", None, "...", "all", "*", "everything"}
+    forbidden_image_tokens = {
+        "your", "image", "name", "here", "placeholder", "example", "demo"
+    }
+
+    for i, step in enumerate(plan, start=1):
+        action = step.get("action")
+        name = step.get("name")
+        image = step.get("image")
+        replicas = step.get("replicas")
+
+        if action in ["deploy", "scale"]:
+            if not isinstance(replicas, int):
+                return False, f"L'étape {i} a un nombre de replicas invalide."
+
+            if replicas < 0:
+                return False, f"L'étape {i} a un nombre de replicas négatif."
+
+            if replicas > 20:
+                return False, f"L'étape {i} demande trop de replicas pour un test local."
+
+        if action == "deploy":
+            if name in forbidden_names:
+                return False, f"L'étape {i} deploy a un nom invalide."
+
+            if image in {"", None}:
+                return False, f"L'étape {i} deploy a une image vide ou absente."
+
+            image_lower = str(image).lower()
+            tokens = re.split(r"[-_/:\s]+", image_lower)
+
+            if any(token in forbidden_image_tokens for token in tokens):
+                return False, f"L'étape {i} deploy a une image placeholder invalide : {image}"
+
+        elif action == "scale":
+            if name in forbidden_names:
+                return False, f"L'étape {i} scale a un nom invalide."
+
+        elif action == "delete":
+            if str(name).lower() in ["", "none", "...", "all", "*", "everything"]:
+                return False, "Suppression globale ou nom invalide interdits pour des raisons de sécurité."
+
+            if str(name).lower() in ["all", "*", "everything"]:
+                return False, "Suppression globale interdite pour des raisons de sécurité."
+
+        elif action == "status":
+            if name in forbidden_names:
+                return False, f"L'étape {i} status a un nom invalide."
+
+    return True, "Règles métier validées."
+
+
+def explain_error(error):
+    """
+    Explique les erreurs d'une manière compréhensible pour l'utilisateur.
+    """
+    from kubernetes.client.exceptions import ApiException
+
+    if isinstance(error, ApiException):
+        if error.status == 404:
+            return "Erreur 404 : la ressource Kubernetes demandée n'existe pas."
+        elif error.status == 409:
+            return "Erreur 409 : conflit, la ressource existe déjà."
+        elif error.status == 403:
+            return "Erreur 403 : accès refusé. Vérifie les permissions Kubernetes."
+        elif error.status == 401:
+            return "Erreur 401 : authentification Kubernetes invalide."
+        elif error.status == 500:
+            return "Erreur 500 : problème interne du serveur Kubernetes."
+        else:
+            return f"Erreur Kubernetes {error.status} : {error.reason}"
+
+    return f"Erreur inattendue : {str(error)}"
+
+
+def execute_plan(plan):
+    try:
+        if not is_cluster_available():
+            print("Cluster Kubernetes indisponible. Vérifie Docker et Minikube.")
+            return
+
+        for i, step in enumerate(plan, start=1):
+            action = step["action"]
+            print(f"\n--- Exécution étape {i}: {action} ---")
+
+            try:
+                if action == "deploy":
+                    name = step["name"]
+
+                    if deployment_exists(name):
+                        print(f"Le deployment '{name}' existe déjà. Deploy ignoré.")
+                        continue
+
+                    created = create_deployment(
+                        name=step["name"],
+                        image=step["image"],
+                        replicas=step["replicas"]
+                    )
+
+                    if created:
+                        print(f"Deploy exécuté pour {step['name']}")
+                    else:
+                        print(f"Deploy ignoré pour {step['name']}")
+
+                elif action == "scale":
+                    name = step["name"]
+
+                    if not deployment_exists(name):
+                        print(f"Impossible de scaler : le deployment '{name}' n'existe pas.")
+                        continue
+
+                    scale_deployment(
+                        name=step["name"],
+                        replicas=step["replicas"]
+                    )
+
+                    print(f"Scale exécuté pour {step['name']} -> {step['replicas']} replicas")
+
+                elif action == "delete":
+                    name = step["name"]
+
+                    if not deployment_exists(name):
+                        print(f"Impossible de supprimer : le deployment '{name}' n'existe pas.")
+                        continue
+
+                    delete_deployment(name=name)
+                    print(f"Delete exécuté pour {name}")
+
+                elif action == "list_pods":
+                    list_pods()
+
+                elif action == "list_deployments":
+                    list_deployments()
+
+                elif action == "list_services":
+                    list_services()
+                
+                elif action == "status":
+                    get_deployment_status(step["name"])
+
+                else:
+                    print(f"Action inconnue ignorée : {action}")
+
+            except Exception as e:
+                print("Erreur pendant l'exécution de cette étape :")
+                print(explain_error(e))
+
+    except Exception as e:
+        print("Erreur générale :")
+        print(explain_error(e))
+
+
+def auto_fix_plan(plan):
+    """
+    Tente de corriger certaines valeurs invalides avant validation métier.
+    """
+    if not isinstance(plan, list):
+        return plan
+
+    known_images = ["nginx", "redis", "httpd", "mysql", "mongodb"]
+
+    for step in plan:
+        if not isinstance(step, dict):
+            continue
+
+        action = step.get("action")
+        name = str(step.get("name", "")).lower()
+        image = str(step.get("image", "")).lower()
+
+        if action == "deploy":
+            invalid_images = {
+                "", "none", "your_image", "your-image",
+                "your-image-name", "your_image_here"
+            }
+
+            if image in invalid_images:
+                for known in known_images:
+                    if known in name:
+                        step["image"] = known
+                        break
+
+    return plan
+
+def process_command(user_command):
+    cache = load_cache()
+
+    if user_command in cache:
+        print("\nPlan récupéré depuis le cache.")
+        parsed = cache[user_command]
+    else:
+        response = ollama.chat(
+            model="gemma2:2b",
+            messages=[{"role": "user", "content": build_prompt(user_command)}]
+        )
+
+        raw = response["message"]["content"]
+
+        print("\nRéponse brute :")
+        print(raw)
+
+        parsed = extract_json_array(raw)
+
+        if parsed is None:
+            print("\nErreur : impossible d'extraire un tableau JSON.")
+            return
+
+        cache[user_command] = parsed
+        save_cache(cache)
+
+    print("\nParsed :")
+    print(parsed)
+
+    parsed = normalize_plan(parsed)
+
+    print("\nPlan normalisé :")
+    print(parsed)
+
+    parsed = auto_fix_plan(parsed)
+
+    print("\nPlan après correction automatique :")
+    print(parsed)
+
+    ok, msg = validate_plan(parsed)
+    print("\nValidation :")
+    print(msg)
+
+    if not ok:
+        return
+
+    consistent, consistency_msg = check_plan_consistency(parsed)
+    print("\nCohérence du plan :")
+    print(consistency_msg)
+
+    if not consistent:
+        return
+
+    business_ok, business_msg = validate_business_rules(parsed)
+    print("\nValidation métier :")
+    print(business_msg)
+
+    if not business_ok:
+        return
+
+    if "dry run" in user_command.lower() or "simulate" in user_command.lower():
+        print("Mode simulation activé")
+        print("\nMode dry-run activé : le plan est validé mais pas exécuté.")
+        print(parsed)
+        return
+
+    load_k8s_config()
+    execute_plan(parsed)
+    save_history(user_command, parsed)
+
+
+def generate_plan_only(user_command):
+    cache = load_cache()
+
+    if user_command in cache:
+        parsed = cache[user_command]
+        cache_used = True
+        raw = None
+    else:
+        response = ollama.chat(
+            model="gemma2:2b",
+            messages=[{"role": "user", "content": build_prompt(user_command)}]
+        )
+
+        raw = response["message"]["content"]
+        parsed = extract_json_array(raw)
+
+        if parsed is None:
+            return {
+                "success": False,
+                "error": "Impossible d'extraire un tableau JSON.",
+                "raw": raw,
+                "plan": None,
+                "cache_used": False
+            }
+
+        cache[user_command] = parsed
+        save_cache(cache)
+        cache_used = False
+
+    parsed = normalize_plan(parsed)
+    parsed = auto_fix_plan(parsed)
+
+    ok, msg = validate_plan(parsed)
+    if not ok:
+        return {
+            "success": False,
+            "error": msg,
+            "plan": parsed,
+            "raw": raw,
+            "cache_used": cache_used
+        }
+
+    consistent, consistency_msg = check_plan_consistency(parsed)
+    if not consistent:
+        return {
+            "success": False,
+            "error": consistency_msg,
+            "plan": parsed,
+            "raw": raw,
+            "cache_used": cache_used
+        }
+
+    business_ok, business_msg = validate_business_rules(parsed)
+    if not business_ok:
+        return {
+            "success": False,
+            "error": business_msg,
+            "plan": parsed,
+            "raw": raw,
+            "cache_used": cache_used
+        }
+
+    return {
+        "success": True,
+        "message": "Plan généré et validé.",
+        "plan": parsed,
+        "raw": raw,
+        "cache_used": cache_used
+    }
+
+
+def main():
+    print("Agent IA Kubernetes démarré.")
+    print("Tape 'exit', 'quit' ou 'q' pour arrêter.\n")
+
+    while True:
+        user_command = input("Commande Kubernetes > ").strip()
+
+        if user_command.lower() in ["exit", "quit", "q"]:
+            print("Arrêt de l'agent IA Kubernetes.")
+            break
+
+        if not user_command:
+            continue
+
+        process_command(user_command)
+
+if __name__ == "__main__":
+    main()

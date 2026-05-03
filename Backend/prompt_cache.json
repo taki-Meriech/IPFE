@@ -1,0 +1,7 @@
+{
+  "afficher les deployments": [
+    {
+      "action": "list_deployments"
+    }
+  ]
+}

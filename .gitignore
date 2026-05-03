@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Build outputs
+build/
+dist/
+
+# Local environment and logs
+.env
+.env.*
+*.log
