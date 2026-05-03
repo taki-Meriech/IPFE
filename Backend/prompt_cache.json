@@ -3,5 +3,12 @@
     {
       "action": "list_deployments"
     }
+  ],
+  "scale nginx to 3 replicas": [
+    {
+      "action": "scale",
+      "name": "nginx",
+      "replicas": 3
+    }
   ]
 }

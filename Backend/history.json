@@ -445,5 +445,23 @@
         "action": "list_deployments"
       }
     ]
+  },
+  {
+    "command": "afficher les deployments",
+    "plan": [
+      {
+        "action": "list_deployments"
+      }
+    ]
+  },
+  {
+    "command": "scale nginx to 3 replicas",
+    "plan": [
+      {
+        "action": "scale",
+        "name": "nginx",
+        "replicas": 3
+      }
+    ]
   }
 ]
